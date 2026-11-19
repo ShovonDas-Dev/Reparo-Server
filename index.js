@@ -23,6 +23,22 @@ const bookingsCollection = db.collection("bookings");
 
   console.log(client)
 
+  const startServer = async () => {
+  try {
+    await client.connect();
+
+    console.log("MongoDB Connected Successfully");
+
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+
+  } catch (error) {
+    console.error("MongoDB connection failed:", error);
+  }
+};
+
+startServer();
  
 
 
@@ -64,6 +80,88 @@ const bookingsCollection = db.collection("bookings");
       })
     }
   })
+
+  // single technician service 
+  app.get("/services/technician/:email", async (req, res) => {
+  const services = await servicesCollection
+    .find({ technicianEmail: req.params.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send({ success: true, data: services });
+});
+
+ 
+// Technician service delete
+app.delete("/services/technician/:id/:email", async (req, res) => {
+  try {
+    const { id, email } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid service ID",
+      });
+    }
+
+    const result = await servicesCollection.deleteOne({
+      _id: new ObjectId(id),
+      technicianEmail: email,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).send({
+        success: false,
+        message: "Service not found or you are not authorized to delete it",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      message: "Service deleted successfully",
+    });
+  } catch (error) {
+    console.error("Service delete error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to delete service",
+    });
+  }
+});
+
+
+// Technical Service On / Off APi
+app.patch("/services/technician/:id/availability", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isAvailable } = req.body;
+
+    // আইডি ঠিক আছে কিনা দেখা
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid service ID" });
+    }
+
+    // isAvailable অবশ্যই true/false হতে হবে
+    if (typeof isAvailable !== "boolean") {
+      return res.status(400).send({ success: false, message: "isAvailable must be true or false" });
+    }
+
+    const result = await servicesCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { isAvailable } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ success: false, message: "Service not found" });
+    }
+
+    res.send({ success: true, message: "Service updated" });
+  } catch (error) {
+    console.error("Update availability error:", error);
+    res.status(500).send({ success: false, message: "Failed to update service" });
+  }
+});
+
 
 // filter and get api
   
@@ -327,26 +425,108 @@ app.post("/bookings", async (req, res) => {
   }
 });
 
+// customar Booking List API
 
-const startServer = async () => {
+app.get("/bookings/customer/:customerId", async (req, res) => {
   try {
-    await client.connect();
+    const { customerId } = req.params;
 
-    console.log("MongoDB Connected Successfully");
+    if (!ObjectId.isValid(customerId)) {
+      return res.status(400).send({ success: false, message: "Invalid Customer ID" });
+    }
 
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
+    const bookings = await bookingsCollection
+      .find({ customerId })
+      .sort({ createdAt: -1 })
+      .toArray();
 
+    res.send({ success: true, data: bookings });
   } catch (error) {
-    console.error("MongoDB connection failed:", error);
+    console.error("Get bookings error:", error);
+    res.status(500).send({ success: false, message: "Failed to load bookings" });
   }
-};
+});
 
-startServer();
+// Cancel Booking When status Pending 
+app.patch("/bookings/:id/cancel", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid booking ID" });
+    }
+
+    const result = await bookingsCollection.updateOne(
+      { _id: new ObjectId(id), status: "pending" },
+      { $set: { status: "cancelled", updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(400).send({
+        success: false,
+        message: "Only requested bookings can be cancelled",
+      });
+    }
+
+    res.send({ success: true, message: "Booking cancelled" });
+  } catch (error) {
+    console.error("Cancel booking error:", error);
+    res.status(500).send({ success: false, message: "Failed to cancel booking" });
+  }
+});
+
+// Technician Booking List 
+// টেকনিশিয়ানের বুকিং লিস্ট
+app.get("/bookings/technician/:email", async (req, res) => {
+  const bookings = await bookingsCollection
+    .find({ technicianEmail: req.params.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.send({ success: true, data: bookings });
+});
+
+// স্ট্যাটাস আপডেট (শুধু সঠিক ক্রমে)
+app.patch("/bookings/:id/status", async (req, res) => {
+  const { status } = req.body;
+
+  const allowedNext = {
+    pending: ["confirmed"],
+    confirmed: ["in_progress"],
+    in_progress: ["completed"],
+  };
+
+  const booking = await bookingsCollection.findOne({ _id: new ObjectId(req.params.id) });
+  if (!booking) {
+    return res.status(404).send({ success: false, message: "Booking not found" });
+  }
+
+  if (!allowedNext[booking.status]?.includes(status)) {
+    return res.status(400).send({
+      success: false,
+      message: `Cannot change status from ${booking.status} to ${status}`,
+    });
+  }
+
+  await bookingsCollection.updateOne(
+    { _id: booking._id },
+    { $set: { status, updatedAt: new Date() } }
+  );
+  res.send({ success: true, message: "Status updated" });
+});
 
 
-git add .
+// Payment 
+app.patch("/bookings/:id/pay", async (req, res) => {
+  const result = await bookingsCollection.updateOne(
+    { _id: new ObjectId(req.params.id), status: "completed", paymentStatus: "unpaid" },
+    { $set: { paymentStatus: "paid", paidAt: new Date(), updatedAt: new Date() } }
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(400).send({ success: false, message: "Payment not allowed" });
+  }
+  res.send({ success: true, message: "Payment successful" });
+});
 
   app.listen(port, () => {
     console.log(`Example app listening on port ${port}`);
