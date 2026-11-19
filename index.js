@@ -35,6 +35,8 @@
       
   })
 
+  // post api service add api
+
   app.post("/services", async (req, res) => {
     try {
       const data = req.body
@@ -60,9 +62,7 @@
     }
   })
 
-
-//   
-
+// filter and get api
   
 app.get("/services", async (req, res) => {
   try {
@@ -183,7 +183,29 @@ app.get("/services", async (req, res) => {
   }
 });
 
+// service detais api
+app.get("/services/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
 
+    const service = await servicesCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!service) {
+      return res.status(404).send({
+        message: "Service not found",
+      });
+    }
+
+    res.send(service);
+
+  } catch (error) {
+    res.status(500).send({
+      message: "Something went wrong",
+    });
+  }
+});
 
 
   app.delete('/jobs/:id' , async (req,res) => {
