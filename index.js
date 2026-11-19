@@ -15,12 +15,15 @@
   const port = 5000;
 
   const client = new MongoClient(process.env.MONGODB_URI);
-  const db = client.db("Reparo");
-  const servicesCollection = db.collection("ServiceCollection")
+const db = client.db("Reparo");
+
+const servicesCollection = db.collection("ServiceCollection");
+const userCollection = db.collection("user");
+const bookingsCollection = db.collection("bookings");
 
   console.log(client)
 
-  app.use(express.json());
+ 
 
 
   app.get('/', (req, res) => {
@@ -64,9 +67,14 @@
 
 // filter and get api
   
+
 app.get("/services", async (req, res) => {
   try {
-    const query = {};
+    // Only approved and available services
+    const query = {
+      approvalStatus: "approved",
+      isAvailable: true,
+    };
 
     console.log("Service query:", req.query);
 
@@ -76,7 +84,6 @@ app.get("/services", async (req, res) => {
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
-        console.log("categoris " + categories)
 
       if (categories.length === 1) {
         query.category = categories[0];
@@ -112,7 +119,6 @@ app.get("/services", async (req, res) => {
     }
 
     // 4. Category Counts
-    // Category filter বাদ দিয়ে count calculate হবে
     const countQuery = { ...query };
     delete countQuery.category;
 
@@ -183,6 +189,7 @@ app.get("/services", async (req, res) => {
   }
 });
 
+
 // service detais api
 app.get("/services/:id", async (req, res) => {
   try {
@@ -207,13 +214,139 @@ app.get("/services/:id", async (req, res) => {
   }
 });
 
+// Booking Api
 
-  app.delete('/jobs/:id' , async (req,res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await jobsCollection.deleteOne(query)
-      res.send(result)
-  })
+// Create Booking API
+app.post("/bookings", async (req, res) => {
+  try {
+    const { serviceId, customerId } = req.body;
+
+    // 1. Validate required fields
+    if (!serviceId || !customerId) {
+      return res.status(400).send({
+        success: false,
+        message: "Service ID and Customer ID are required",
+      });
+    }
+
+    // 2. Validate MongoDB ObjectIds
+    if (
+      !ObjectId.isValid(serviceId) ||
+      !ObjectId.isValid(customerId)
+    ) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid Service ID or Customer ID",
+      });
+    }
+
+    // 3. Find Customer
+    const customer = await userCollection.findOne({
+      _id: new ObjectId(customerId),
+      role: "customer",
+    });
+
+  
+    if (!customer) {
+      return res.status(404).send({
+        success: false,
+        message: "Customer not found",
+      });
+    }
+
+    // 4. Find Approved and Available Service
+    const service = await servicesCollection.findOne({
+      _id: new ObjectId(serviceId),
+      approvalStatus: "approved",
+      isAvailable: true,
+    });
+
+    if (!service) {
+      return res.status(404).send({
+        success: false,
+        message: "Service not found or not available for booking",
+      });
+    }
+
+    // 5. Find Technician
+    const technician = await userCollection.findOne({
+      email: service.technicianEmail,
+      role: "technician",
+    });
+
+    if (!technician) {
+      return res.status(404).send({
+        success: false,
+        message: "Technician not found",
+      });
+    }
+
+    // 6. Create Booking Document
+    const bookingData = {
+      customerId: customer._id.toString(),
+      customerName: customer.name,
+      customerEmail: customer.email,
+
+      serviceId: service._id.toString(),
+      serviceName: service.title,
+      category: service.category,
+      description: service.description,
+      image: service.image,
+      amount: Number(service.basePrice),
+      estimatedDuration: service.estimatedDuration,
+      serviceMode: service.serviceMode,
+      serviceArea: service.serviceArea,
+
+      technicianId: technician._id.toString(),
+      technicianName: technician.name,
+      technicianEmail: technician.email,
+
+      status: "pending",
+      paymentStatus: "unpaid",
+
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // 7. Save Booking
+    const result = await bookingsCollection.insertOne(bookingData);
+
+    res.status(201).send({
+      success: true,
+      message: "Booking created successfully",
+      bookingId: result.insertedId,
+    });
+
+  } catch (error) {
+    console.error("Create booking error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to create booking",
+    });
+  }
+});
+
+
+const startServer = async () => {
+  try {
+    await client.connect();
+
+    console.log("MongoDB Connected Successfully");
+
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+
+  } catch (error) {
+    console.error("MongoDB connection failed:", error);
+  }
+};
+
+startServer();
+
+
+git add .
 
   app.listen(port, () => {
     console.log(`Example app listening on port ${port}`);
