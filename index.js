@@ -1,6 +1,7 @@
 
   import express from 'express';
   import cors from 'cors';
+  import crypto from "crypto"; 
   import { MongoClient, ObjectId } from 'mongodb';
   import dotenv from 'dotenv';
 
@@ -9,7 +10,7 @@
   const app = express()
 
 
-  app.use(cors())
+  app.use(cors({ origin: process.env.URI, credentials: true }));
   app.use(express.json())
 
   const port = 5000;
@@ -20,6 +21,7 @@ const db = client.db("Reparo");
 const servicesCollection = db.collection("ServiceCollection");
 const userCollection = db.collection("user");
 const bookingsCollection = db.collection("bookings");
+const paymentsCollection = db.collection("payments");
 
   console.log(client)
 
@@ -516,16 +518,81 @@ app.patch("/bookings/:id/status", async (req, res) => {
 
 
 // Payment 
+// Payment (simulated): booking paid + payments record
 app.patch("/bookings/:id/pay", async (req, res) => {
-  const result = await bookingsCollection.updateOne(
-    { _id: new ObjectId(req.params.id), status: "completed", paymentStatus: "unpaid" },
-    { $set: { paymentStatus: "paid", paidAt: new Date(), updatedAt: new Date() } }
-  );
+  try {
+    const { id } = req.params;
+    const { customerId } = req.body;
 
-  if (result.matchedCount === 0) {
-    return res.status(400).send({ success: false, message: "Payment not allowed" });
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid booking ID" });
+    }
+    if (!customerId) {
+      return res.status(401).send({ success: false, message: "You must be signed in to pay." });
+    }
+
+    const booking = await bookingsCollection.findOne({ _id: new ObjectId(id) });
+    if (!booking) {
+      return res.status(404).send({ success: false, message: "Booking not found" });
+    }
+    if (booking.customerId !== String(customerId)) {
+      return res.status(403).send({ success: false, message: "You do not own this booking" });
+    }
+
+    // Already has a payment record: safe to return success again
+    const existing = await paymentsCollection.findOne({ bookingId: booking._id.toString() });
+    if (existing) {
+      return res.send({ success: true, message: "Already paid", payment: existing });
+    }
+
+    // Flip unpaid -> paid only once (atomic)
+    const result = await bookingsCollection.updateOne(
+      { _id: booking._id, status: "completed", paymentStatus: "unpaid" },
+      { $set: { paymentStatus: "paid", paidAt: new Date(), updatedAt: new Date() } }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(400).send({ success: false, message: "Payment not allowed" });
+    }
+
+    // Save the payment record (amount comes from the booking, not the client)
+    const payment = {
+      bookingId: booking._id.toString(),
+      customerId: booking.customerId,
+      technicianId: booking.technicianId,
+      serviceName: booking.serviceName,
+      amount: booking.amount,
+      currency: "BDT",
+      method: "card",
+      status: "paid",
+      transactionId: "sim_cs_test_" + crypto.randomBytes(8).toString("hex"),
+      paidAt: new Date(),
+      createdAt: new Date(),
+    };
+    await paymentsCollection.insertOne(payment);
+
+    res.send({ success: true, message: "Payment successful", payment });
+  } catch (error) {
+    console.error("Pay error:", error);
+    res.status(500).send({ success: false, message: "Failed to pay for the booking" });
   }
-  res.send({ success: true, message: "Payment successful" });
+});
+
+// Customer payments list
+app.get("/payments", async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    if (!customerId) {
+      return res.status(400).send({ success: false, message: "customerId is required" });
+    }
+    const payments = await paymentsCollection
+      .find({ customerId: String(customerId) })
+      .sort({ paidAt: -1 })
+      .toArray();
+    res.send({ success: true, data: payments });
+  } catch (error) {
+    console.error("Get payments error:", error);
+    res.status(500).send({ success: false, message: "Failed to load payments" });
+  }
 });
 
   app.listen(port, () => {
