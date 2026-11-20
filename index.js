@@ -57,9 +57,10 @@ startServer();
       res.send(data)
       
   })
+  
 
   // user role change API
-  // Change the role of a user
+
 app.patch("/user/:id/role", async (req, res) => {
   try {
     const { id } = req.params;
@@ -641,6 +642,57 @@ app.get("/payments/technician/:technicianId", async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to load payments" });
   }
 }); 
+
+
+
+// ---------------------------------------------------------------------
+
+// ADMIN
+
+// Admin: get ALL services (pending, approved, rejected)
+app.get("/admin/services", async (req, res) => {
+  try {
+    const services = await servicesCollection
+      .find({})
+      .sort({ postedAt: -1 })
+      .toArray();
+    res.send({ success: true, data: services });
+  } catch (error) {
+    console.error("Admin get services error:", error);
+    res.status(500).send({ success: false, message: "Failed to load services" });
+  }
+});
+
+// Admin: change the approval status of a service
+app.patch("/admin/services/:id/approval", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { approvalStatus } = req.body;
+
+    // Check the id and the new status are valid
+    const allowedStatus = ["pending", "approved", "rejected"];
+    if (!ObjectId.isValid(id) || !allowedStatus.includes(approvalStatus)) {
+      return res.status(400).send({ success: false, message: "Invalid service or status" });
+    }
+
+    const result = await servicesCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { approvalStatus } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ success: false, message: "Service not found" });
+    }
+
+    res.send({ success: true, message: "Approval status updated" });
+  } catch (error) {
+    console.error("Approval update error:", error);
+    res.status(500).send({ success: false, message: "Failed to update service" });
+  }
+});
+
+
+
 
   app.listen(port, () => {
     console.log(`Example app listening on port ${port}`);
