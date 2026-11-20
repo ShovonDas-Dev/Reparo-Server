@@ -10,7 +10,8 @@
   const app = express()
 
 
-  app.use(cors({ origin: process.env.URI, credentials: true }));
+app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
+ 
   app.use(express.json())
 
   const port = 5000;
@@ -48,7 +49,8 @@ startServer();
     res.send('Hello World!');
   });
 
-  app.get("/user" , async (req, res) => {
+  // all user get api
+  app.get("/users" , async (req, res) => {
     
       const collection = db.collection("user");
       const data = await collection.find().toArray();
@@ -56,6 +58,35 @@ startServer();
       
   })
 
+  // user role change API
+  // Change the role of a user
+app.patch("/user/:id/role", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    // Check the id and the role are valid
+    const allowedRoles = ["customer", "technician", "admin"];
+    if (!ObjectId.isValid(id) || !allowedRoles.includes(role)) {
+      return res.status(400).send({ success: false, message: "Invalid user or role" });
+    }
+
+    // Update the role
+    const result = await userCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { role } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({ success: false, message: "User not found" });
+    }
+
+    res.send({ success: true, message: "Role updated" });
+  } catch (error) {
+    console.error("Change role error:", error);
+    res.status(500).send({ success: false, message: "Failed to change role" });
+  }
+});
   // post api service add api
 
   app.post("/services", async (req, res) => {
@@ -594,6 +625,22 @@ app.get("/payments", async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to load payments" });
   }
 });
+
+// all payment list when match the technician ID
+
+app.get("/payments/technician/:technicianId", async (req, res) => {
+  try {
+    const { technicianId } = req.params;
+    const payments = await paymentsCollection
+      .find({ technicianId: String(technicianId) })
+      .sort({ paidAt: -1 })
+      .toArray();
+    res.send({ success: true, data: payments });
+  } catch (error) {
+    console.error("Get technician payments error:", error);
+    res.status(500).send({ success: false, message: "Failed to load payments" });
+  }
+}); 
 
   app.listen(port, () => {
     console.log(`Example app listening on port ${port}`);
