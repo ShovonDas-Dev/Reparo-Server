@@ -691,6 +691,64 @@ app.patch("/admin/services/:id/approval", async (req, res) => {
   }
 });
 
+// Admin: get ALL bookings (every customer, every technician)
+app.get("/admin/bookings", async (req, res) => {
+  try {
+    const bookings = await bookingsCollection
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.send({ success: true, data: bookings });
+  } catch (error) {
+    console.error("Admin get bookings error:", error);
+    res.status(500).send({ success: false, message: "Failed to load bookings" });
+  }
+});
+
+// Admin: get ALL payments (transactions) with customer and technician names
+app.get("/admin/payments", async (req, res) => {
+  try {
+    // 1. Load all payments, newest first
+    const payments = await paymentsCollection
+      .find({})
+      .sort({ paidAt: -1 })
+      .toArray();
+
+    // 2. Load the bookings that these payments belong to
+    const bookingIds = payments
+      .filter((payment) => ObjectId.isValid(payment.bookingId))
+      .map((payment) => new ObjectId(payment.bookingId));
+
+    const bookings = await bookingsCollection
+      .find({ _id: { $in: bookingIds } })
+      .toArray();
+
+    // 3. Make a small lookup: bookingId -> booking
+    const bookingMap = {};
+    bookings.forEach((booking) => {
+      bookingMap[booking._id.toString()] = booking;
+    });
+
+    // 4. Add the names to every payment
+    const data = payments.map((payment) => {
+      const booking = bookingMap[payment.bookingId];
+      return {
+        ...payment,
+        serviceName: payment.serviceName || booking?.serviceName || "-",
+        customerName: booking?.customerName || "-",
+        customerEmail: booking?.customerEmail || "-",
+        technicianName: booking?.technicianName || "-",
+        technicianEmail: booking?.technicianEmail || "-",
+      };
+    });
+
+    res.send({ success: true, data });
+  } catch (error) {
+    console.error("Admin get payments error:", error);
+    res.status(500).send({ success: false, message: "Failed to load payments" });
+  }
+});
+
 
 
 
