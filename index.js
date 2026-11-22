@@ -9,12 +9,23 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL?.replace(/\/$/, ""),
+    credentials: true,
+  })
+);
 app.use(express.json());
 
-const port = process.env.PORT;
+const port = process.env.PORT || 5000;
 
-const client = new MongoClient(process.env.MONGODB_URI);
+if (!process.env.MONGODB_URI) {
+  console.error("MONGODB_URI is missing");
+}
+
+const client = new MongoClient(
+  process.env.MONGODB_URI || "mongodb://localhost:27017"
+);
 const db = client.db("Reparo");
 
 const servicesCollection = db.collection("ServiceCollection");
@@ -22,21 +33,22 @@ const userCollection = db.collection("user");
 const bookingsCollection = db.collection("bookings");
 const paymentsCollection = db.collection("payments");
 
-// Start the server after MongoDB is connected
-const startServer = async () => {
+// ---------------------------------------------------------------
+// DB connection (serverless friendly)
+// Connects once, then the same connection is reused.
+// ---------------------------------------------------------------
+let connecting;
+app.use(async (req, res, next) => {
   try {
-    await client.connect();
-    console.log("MongoDB Connected Successfully");
-
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-    });
+    connecting ||= client.connect();
+    await connecting;
+    next();
   } catch (error) {
+    connecting = null;
     console.error("MongoDB connection failed:", error);
+    res.status(500).send({ message: "Database connection failed" });
   }
-};
-
-startServer();
+});
 
 // ---------------------------------------------------------------
 // PUBLIC routes (no token needed)
@@ -372,9 +384,9 @@ app.post(
       // The service belongs to the logged in technician (not what the client sends)
       data.technicianEmail = req.user.email;
 
-      // NOTE: if your form sends approvalStatus, set the starting value here
-      // so a technician cannot approve his own service:
-      // data.approvalStatus = "pending";
+      // A technician cannot approve his own service
+      data.approvalStatus = "pending";
+      data.isAvailable = true;
 
       if (!data.postedAt) {
         data.postedAt = new Date().toISOString();
@@ -649,9 +661,10 @@ app.post(
 
       // 2. Validate MongoDB ObjectIds
       if (!ObjectId.isValid(serviceId) || !ObjectId.isValid(customerId)) {
-        return res
-          .status(400)
-          .send({ success: false, message: "Invalid Service ID or Customer ID" });
+        return res.status(400).send({
+          success: false,
+          message: "Invalid Service ID or Customer ID",
+        });
       }
 
       // 3. Find the customer
@@ -977,4 +990,15 @@ app.patch("/profile", verifyToken, async (req, res) => {
       .send({ success: false, message: "Failed to update profile" });
   }
 });
-export default app
+
+// ---------------------------------------------------------------
+// Start the server
+// Local e listen kore. Vercel e listen hoy na (Vercel nijei handle kore).
+// ---------------------------------------------------------------
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+export default app;

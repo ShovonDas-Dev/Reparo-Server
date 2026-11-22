@@ -1,16 +1,18 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import dotenv from "dotenv";
 
-
-// The public keys of the Next.js app. Better Auth signs the token with a
-// private key, and we check the signature with these public keys.
 dotenv.config();
 
-const JWKS = createRemoteJWKSet(
-  new URL(`${process.env.AUTH_URL}/api/auth/jwks`)
-);
+// Frontend (Next.js) er URL, shesh e "/" thakle muche felbe
+const AUTH_URL = process.env.AUTH_URL?.replace(/\/$/, "");
 
-
+// JWKS ta lazy banano hoy, jate AUTH_URL na thakleo server start e crash na kore
+let JWKS;
+const getJWKS = () => {
+  if (!AUTH_URL) throw new Error("AUTH_URL is missing");
+  JWKS ||= createRemoteJWKSet(new URL(`${AUTH_URL}/api/auth/jwks`));
+  return JWKS;
+};
 
 // STEP 1: check that the request has a valid token.
 // If it is valid, we save the user in req.user so the route can use it.
@@ -18,7 +20,7 @@ export const verifyToken = async (req, res, next) => {
   try {
     // The token comes in the header: Authorization: Bearer <token>
     const header = req.headers.authorization;
-   
+
     if (!header || !header.startsWith("Bearer ")) {
       return res
         .status(401)
@@ -28,9 +30,9 @@ export const verifyToken = async (req, res, next) => {
     const token = header.split(" ")[1];
 
     // Check the signature, the issuer and the expiry time
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer: process.env.AUTH_URL,
-      audience: process.env.AUTH_URL,
+    const { payload } = await jwtVerify(token, getJWKS(), {
+      issuer: AUTH_URL,
+      audience: AUTH_URL,
     });
 
     // The logged in user. It comes from the token, NOT from the request body.
@@ -60,4 +62,3 @@ export const requireRole = (...allowedRoles) => {
     next();
   };
 };
-
