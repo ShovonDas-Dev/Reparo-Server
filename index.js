@@ -12,7 +12,7 @@ const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
 app.use(express.json());
 
-const port = 5000;
+const port = process.env.PORT;
 
 const client = new MongoClient(process.env.MONGODB_URI);
 const db = client.db("Reparo");
@@ -977,3 +977,4 @@ app.patch("/profile", verifyToken, async (req, res) => {
       .send({ success: false, message: "Failed to update profile" });
   }
 });
+export default app
