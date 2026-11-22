@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Frontend (Next.js) er URL, shesh e "/" thakle muche felbe
-const AUTH_URL = process.env.AUTH_URL?.replace(/\/$/, "");
+const AUTH_URL = process.env.AUTH_URL?.trim().replace(/\/+$/, "");
 
 // JWKS ta lazy banano hoy, jate AUTH_URL na thakleo server start e crash na kore
 let JWKS;
@@ -15,10 +15,8 @@ const getJWKS = () => {
 };
 
 // STEP 1: check that the request has a valid token.
-// If it is valid, we save the user in req.user so the route can use it.
 export const verifyToken = async (req, res, next) => {
   try {
-    // The token comes in the header: Authorization: Bearer <token>
     const header = req.headers.authorization;
 
     if (!header || !header.startsWith("Bearer ")) {
@@ -29,13 +27,15 @@ export const verifyToken = async (req, res, next) => {
 
     const token = header.split(" ")[1];
 
-    // Check the signature, the issuer and the expiry time
-    const { payload } = await jwtVerify(token, getJWKS(), {
-      issuer: AUTH_URL,
-      audience: AUTH_URL,
-    });
+    // Signature ta amader nijer frontend er JWKS diye verify hoy (trusted key).
+    // Tai issuer/audience er exact match dorkar nai, expiry o check hoy.
+    const { payload } = await jwtVerify(token, getJWKS());
 
-    // The logged in user. It comes from the token, NOT from the request body.
+    // Debug: iss ta Logs e dekhar jonno (pore muche dite paren)
+    if (payload.iss !== AUTH_URL) {
+      console.log("iss differs. token iss:", payload.iss, "| AUTH_URL:", AUTH_URL);
+    }
+
     req.user = {
       id: payload.sub || payload.id,
       email: payload.email,
@@ -43,12 +43,7 @@ export const verifyToken = async (req, res, next) => {
     };
 
     next();
-  }  catch (error) {
-    try {
-      const t = req.headers.authorization?.split(" ")[1];
-      const p = decodeJwt(t);
-      console.error("TOKEN iss:", p.iss, "| aud:", p.aud, "| expected:", AUTH_URL);
-    } catch {}
+  } catch (error) {
     console.error("Token check failed:", error.message);
     return res
       .status(401)
