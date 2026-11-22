@@ -43,7 +43,12 @@ export const verifyToken = async (req, res, next) => {
     };
 
     next();
-  } catch (error) {
+  }  catch (error) {
+    try {
+      const t = req.headers.authorization?.split(" ")[1];
+      const p = decodeJwt(t);
+      console.error("TOKEN iss:", p.iss, "| aud:", p.aud, "| expected:", AUTH_URL);
+    } catch {}
     console.error("Token check failed:", error.message);
     return res
       .status(401)
